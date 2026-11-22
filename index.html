@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Oh My Keymint · SKRoot</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;padding:14px;font-family:-apple-system,"HarmonyOS Sans",Roboto,sans-serif;
+     background:#12141a;color:#e6e8ee;font-size:14px}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:#8b93a7;font-size:12px;margin-bottom:14px}
+.card{background:#1b1f29;border:1px solid #272c38;border-radius:12px;padding:12px;margin-bottom:12px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0}
+.row+.row{border-top:1px solid #232833}
+.k{color:#9aa3b8}
+.v{font-weight:600}
+.ok{color:#4ade80}.bad{color:#f87171}.warn{color:#fbbf24}
+button{background:#2b3446;color:#e6e8ee;border:1px solid #3a445a;border-radius:9px;
+       padding:9px 14px;font-size:13px;cursor:pointer}
+button:active{background:#3a445a}
+button.primary{background:#2563eb;border-color:#2563eb}
+button.danger{background:#7f1d1d;border-color:#991b1b}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+textarea{width:100%;min-height:150px;background:#0e1117;color:#cfd6e6;border:1px solid #2b3446;
+         border-radius:9px;padding:9px;font-family:ui-monospace,monospace;font-size:12px;resize:vertical}
+pre{background:#0e1117;border:1px solid #232833;border-radius:9px;padding:9px;overflow:auto;
+    max-height:300px;font-size:11px;line-height:1.45;margin:0;white-space:pre-wrap;word-break:break-all}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#2563eb;
+       color:#fff;padding:9px 16px;border-radius:20px;font-size:13px;opacity:0;
+       transition:opacity .25s;pointer-events:none}
+#toast.show{opacity:1}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.dot.on{background:#4ade80}.dot.off{background:#6b7280}
+</style>
+</head>
+<body>
+<h1>Oh My Keymint</h1>
+<div class="sub">SKRoot 模块 · KeyMint 伪装</div>
+
+<div class="card">
+  <div class="row"><span class="k">模块版本</span><span class="v" id="ver">-</span></div>
+  <div class="row"><span class="k">keymint 守护</span><span class="v" id="km">-</span></div>
+  <div class="row"><span class="k">injector 守护</span><span class="v" id="ij">-</span></div>
+  <div class="row"><span class="k">keystore2 已注入</span><span class="v" id="inj">-</span></div>
+  <div class="row"><span class="k">开机自动启动</span><span class="v" id="en">-</span></div>
+  <div class="btns">
+    <button class="primary" onclick="act('/restart')">重启 OMK</button>
+    <button onclick="toggleEnable()">切换自启</button>
+    <button class="danger" onclick="act('/stop')">全部停止</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row"><span class="k">日志（重启后刷新）</span><button onclick="loadLog()">刷新日志</button></div>
+  <pre id="log">点击「刷新日志」加载</pre>
+</div>
+
+<div class="card">
+  <div class="row"><span class="k">injector.toml</span><button onclick="saveCfg('/setInjectorToml','taToml')">保存</button></div>
+  <textarea id="taToml" spellcheck="false" placeholder="加载中…"></textarea>
+  <div class="btns"><button onclick="loadCfg('/getInjectorToml','taToml')">重新加载</button></div>
+</div>
+
+<div class="card">
+  <div class="row"><span class="k">keybox.xml</span><button onclick="saveCfg('/setKeyboxXml','taKeybox')">保存</button></div>
+  <textarea id="taKeybox" spellcheck="false" style="min-height:110px"></textarea>
+  <div class="btns"><button onclick="loadCfg('/getKeyboxXml','taKeybox')">重新加载</button></div>
+</div>
+
+<div id="toast"></div>
+<script>
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),1800);}
+async function post(path,body){
+  const r=await fetch(path,{method:'POST',body:body===undefined?'':body});
+  return await r.text();
+}
+function dot(on){return on?'<span class="dot on"></span><span class="ok">运行中</span>'
+                       :'<span class="dot off"></span><span class="bad">未运行</span>';}
+let enabled=true;
+async function refresh(){
+  try{
+    const s=JSON.parse(await post('/getStatus'));
+    document.getElementById('ver').textContent=s.version+' / OMK '+s.omkVersion;
+    document.getElementById('km').innerHTML=dot(s.keymintRunning)+(s.keymintPid?' (pid '+s.keymintPid+')':'');
+    document.getElementById('ij').innerHTML=dot(s.injectorRunning)+(s.injectorPid?' (pid '+s.injectorPid+')':'');
+    document.getElementById('inj').innerHTML=s.injected?'<span class="ok">是</span>'
+      :'<span class="warn">否</span>'+(s.keystorePid?'（keystore2 pid '+s.keystorePid+'）':'');
+    document.getElementById('en').textContent=s.enabled?'已开启':'已关闭';
+    enabled=s.enabled;
+  }catch(e){toast('读取状态失败：'+e);}
+}
+async function act(path){
+  const t=await post(path);toast(t);setTimeout(refresh,1500);
+}
+async function toggleEnable(){
+  const t=await post('/setEnabled',enabled?'0':'1');
+  toast(t==='OFF'?'已关闭开机自启（重启后不启动）':'已开启开机自启');
+  setTimeout(refresh,500);
+}
+async function loadLog(){
+  const t=await post('/getLog');
+  document.getElementById('log').textContent=t||'(空)';
+  document.getElementById('log').scrollTop=1e9;
+}
+async function loadCfg(path,id){
+  document.getElementById(id).value=await post(path);
+}
+async function saveCfg(path,id){
+  const v=document.getElementById(id).value;
+  const t=await post(path,v);
+  toast(t==='OK'?'已保存，建议点「重启 OMK」生效':t);
+}
+refresh();setTimeout(loadCfg,600,'/getInjectorToml','taToml');
+setTimeout(loadCfg,900,'/getKeyboxXml','taKeybox');
+</script>
+</body>
+</html>
