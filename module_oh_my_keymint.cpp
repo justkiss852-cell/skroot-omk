@@ -247,40 +247,7 @@ std::string build_status_json() {
     return out;
 }
 
-// ---------------------------------------------------------------- 安装 / 卸载回调
-std::string module_on_install(const char* root_key, const char* module_private_dir) {
-    (void)root_key;
-    g_module_dir = normalize_dir(module_private_dir);
-    omk_log("on install, module dir: %s", g_module_dir.c_str());
-
-    const std::string sdk = trim(run_cmd_capture("getprop ro.build.version.sdk 2>/dev/null"));
-    if (!sdk.empty() && ::atoi(sdk.c_str()) < 33) {
-        return std::string("Oh My Keymint 需要 Android 13 (API 33) 及以上，当前 API: ") + sdk;
-    }
-
-    prepare_state_dirs();
-    // 首次安装就把配置放到 keystore 侧目录，方便安装后立刻生效
-    if (!file_exists(kKeyboxTarget) && file_exists(dir_of(kKeyboxRes))) {
-        std::string text;
-        if (read_text_file(dir_of(kKeyboxRes), text)) write_text_file(kKeyboxTarget, text);
-    }
-    if (!file_exists(kInjectorTarget) && file_exists(dir_of(kInjectorCfgRes))) {
-        std::string text;
-        if (read_text_file(dir_of(kInjectorCfgRes), text)) write_text_file(kInjectorTarget, text);
-    }
-    ::chmod(kKeyboxTarget, 0600);
-    ::chmod(kInjectorTarget, 0600);
-    return std::string();   // 返回空串 = 允许安装
-}
-
-void module_on_uninstall(const char* root_key, const char* module_private_dir) {
-    (void)root_key;
-    g_module_dir = normalize_dir(module_private_dir);
-    omk_log("on uninstall, clean up");
-    stop_daemons();
-    run_cmd_capture("rm -rf /data/adb/omk /data/misc/keystore/omk 2>/dev/null");
-    ::sync();
-}
+} // namespace
 
 // ---------------------------------------------------------------- WebUI
 class OmkWebHandler : public kernel_module::WebUIHttpHandler {
@@ -326,7 +293,7 @@ public:
             } else {
                 bool ok = write_text_file(kInjectorTarget, body) ||
                           write_text_file(dir_of(kInjectorCfgRes), body);
-                ::chmod(kInjectorTarget.c_str(), 0600);
+                ::chmod(kInjectorTarget, 0600);
                 resp = ok ? "OK" : "FAILED";
                 omk_log("webui set injector.toml: %s", ok ? "ok" : "failed");
             }
@@ -339,7 +306,7 @@ public:
             } else {
                 bool ok = write_text_file(kKeyboxTarget, body) ||
                           write_text_file(dir_of(kKeyboxRes), body);
-                ::chmod(kKeyboxTarget.c_str(), 0600);
+                ::chmod(kKeyboxTarget, 0600);
                 resp = ok ? "OK" : "FAILED";
                 omk_log("webui set keybox.xml: %s", ok ? "ok" : "failed");
             }
@@ -357,7 +324,41 @@ public:
     }
 };
 
-} // namespace
+// ---------------------------------------------------------------- 安装 / 卸载回调
+std::string module_on_install(const char* root_key, const char* module_private_dir) {
+    (void)root_key;
+    g_module_dir = normalize_dir(module_private_dir);
+    omk_log("on install, module dir: %s", g_module_dir.c_str());
+
+    const std::string sdk = trim(run_cmd_capture("getprop ro.build.version.sdk 2>/dev/null"));
+    if (!sdk.empty() && ::atoi(sdk.c_str()) < 33) {
+        return std::string("Oh My Keymint 需要 Android 13 (API 33) 及以上，当前 API: ") + sdk;
+    }
+
+    prepare_state_dirs();
+    // 首次安装就把配置放到 keystore 侧目录，方便安装后立刻生效
+    if (!file_exists(kKeyboxTarget) && file_exists(dir_of(kKeyboxRes))) {
+        std::string text;
+        if (read_text_file(dir_of(kKeyboxRes), text)) write_text_file(kKeyboxTarget, text);
+    }
+    if (!file_exists(kInjectorTarget) && file_exists(dir_of(kInjectorCfgRes))) {
+        std::string text;
+        if (read_text_file(dir_of(kInjectorCfgRes), text)) write_text_file(kInjectorTarget, text);
+    }
+    ::chmod(kKeyboxTarget, 0600);
+    ::chmod(kInjectorTarget, 0600);
+    return std::string();   // 返回空串 = 允许安装
+}
+
+void module_on_uninstall(const char* root_key, const char* module_private_dir) {
+    (void)root_key;
+    g_module_dir = normalize_dir(module_private_dir);
+    omk_log("on uninstall, clean up");
+    stop_daemons();
+    run_cmd_capture("rm -rf /data/adb/omk /data/misc/keystore/omk 2>/dev/null");
+    ::sync();
+}
+
 
 // ---------------------------------------------------------------- 模块入口
 int skroot_module_main(const char* root_key, const char* module_private_dir) {
