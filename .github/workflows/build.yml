@@ -1,7 +1,7 @@
 # =====================================================================
 #  Oh My Keymint for SKRoot(Pro) —— 云编译工作流
-#  放到仓库的 .github/workflows/build.yml
-#  Actions → Build SKRoot OMK module → Run workflow → 下载 artifacts
+#  注意：SKRoot 仓库目录名带括号 "Pro(众测开放中)"，ndk-build 处理不了，
+#        所以这里先把 SDK 和工程复制到 work/ 这种干净路径下再编译。
 # =====================================================================
 name: Build SKRoot OMK module
 
@@ -13,6 +13,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      WORK: ${{ github.workspace }}/work
     steps:
       - uses: actions/checkout@v4
 
@@ -27,24 +29,23 @@ jobs:
           mkdir -p omk_rel && unzip -o omk.zip -d omk_rel > /dev/null
           ls -l omk_rel/libs/arm64-v8a/
 
-      - name: Assemble module tree
+      - name: Assemble build tree in clean path
         run: |
           set -e
-          MOD="skroot/Pro(众测开放中)/src/testModule/module_oh_my_keymint"
-          mkdir -p "$MOD/jni" "$MOD/resources/omk" "$MOD/webroot" "$MOD/wwwroot"
+          SDK="$(echo skroot/Pro*/src/testModule/kernel_module_kit)"
+          echo "SDK=$SDK"
+          MOD="$WORK/module_oh_my_keymint"
+          mkdir -p "$WORK" "$MOD/jni" "$MOD/resources/omk" "$MOD/webroot" "$MOD/wwwroot"
+          cp -r "$SDK" "$WORK/kernel_module_kit"
 
-          # --- 模块源码 ---
           cp module_oh_my_keymint.cpp omk_utils.h "$MOD/"
-
-          # --- WebUI（没有 index.html 也能编译，只是没页面）---
           if [ -f index.html ]; then
             cp index.html "$MOD/webroot/index.html"
             cp index.html "$MOD/wwwroot/index.html"
           fi
 
-          # --- OMK 官方文件：二进制 + 原版脚本/配置 ---
-          cp omk_rel/libs/arm64-v8a/keymint  "$MOD/resources/omk/keymint"
-          cp omk_rel/libs/arm64-v8a/inject   "$MOD/resources/omk/inject"
+          cp omk_rel/libs/arm64-v8a/keymint "$MOD/resources/omk/keymint"
+          cp omk_rel/libs/arm64-v8a/inject  "$MOD/resources/omk/inject"
           cp omk_rel/daemon omk_rel/daemon-injector \
              omk_rel/keybox.xml omk_rel/injector.toml "$MOD/resources/omk/"
           cp omk_rel/sepolicy.rule "$MOD/resources/sepolicy.rule"
@@ -53,7 +54,6 @@ jobs:
                    "$MOD/resources/omk/daemon" \
                    "$MOD/resources/omk/daemon-injector"
 
-          # --- jni 编译文件 ---
           cat > "$MOD/jni/Android.mk" <<'MK'
           LOCAL_PATH := $(call my-dir)
           include $(CLEAR_VARS)
@@ -93,8 +93,8 @@ jobs:
           LOCAL_C_INCLUDES += $(COMMON_INCLUDES)
           MK
 
-          echo "----- module tree -----"
-          find "$MOD" -maxdepth 2 -type f | sort
+          echo "--- Android.mk ---"; cat "$MOD/jni/Android.mk"
+          echo "--- tree ---"; find "$MOD" -maxdepth 2 -type f | sort
 
       - name: Setup Android NDK r26d
         uses: nttld/setup-ndk@v1
@@ -106,21 +106,15 @@ jobs:
         run: |
           set -e
           export PATH="${{ steps.ndk.outputs.ndk-path }}:$PATH"
-          MOD="skroot/Pro(众测开放中)/src/testModule/module_oh_my_keymint"
-          cd "$MOD/jni"
-          ndk-build -j4 || true
-          if [ ! -f "$MOD/libs/arm64-v8a/libmodule_oh_my_keymint.so" ]; then
-            echo "在 jni 目录编译失败，改用显式参数重试"
-            cd "$MOD"
-            ndk-build NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni/Android.mk NDK_APPLICATION_MK=jni/Application.mk -j4
-          fi
-          ls -l "$MOD/libs/arm64-v8a/"
+          cd "$WORK/module_oh_my_keymint/jni"
+          ndk-build -j4
+          ls -l "$WORK/module_oh_my_keymint/libs/arm64-v8a/"
 
       - name: Package SKRoot module zip
         run: |
           set -e
-          MOD="skroot/Pro(众测开放中)/src/testModule/module_oh_my_keymint"
-          STAGE="$GITHUB_WORKSPACE/package"
+          MOD="$WORK/module_oh_my_keymint"
+          STAGE="$WORK/package"
           rm -rf "$STAGE" && mkdir -p "$STAGE"
           cp "$MOD/libs/arm64-v8a/libmodule_oh_my_keymint.so" "$STAGE/"
           cp -r "$MOD/resources/." "$STAGE/"
